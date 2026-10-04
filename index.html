@@ -476,9 +476,7 @@
         // ================================================================
         // 1. CẤU HÌNH KHÓA API VÀ ENDPOINT GOOGLE GEMINI MODEL MỚI (gemini-3.8-flash)
         // ================================================================
-        const GEMINI_API_KEY = "AQ.Ab8RN6JBC3VNvpKKuuW9cf-7I-xja02Xf6LB0K19lKIDzuSzVw";
-        const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-
+       
 
         // Lưu trữ biến toàn cục
         let originalText = "";
@@ -553,39 +551,31 @@ Trả về JSON nghiêm ngặt có cấu trúc như sau (không dùng markdown b
         // 3. HÀM GỌI API GEMINI DÙNG FETCH()
         // ================================================================
         async function callGeminiAPI(systemInstruction, userPrompt) {
-            const requestBody = {
-                contents: [
-                    {
-                        role: "user",
-                        parts: [
-                            { text: systemInstruction + "\n\n" + userPrompt }
-                        ]
-                    }
-                ],
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    temperature: 0.2
-                }
-            };
+    const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            system_instruction: systemInstruction,
+            prompt: userPrompt
+        })
+    });
 
-            const response = await fetch(GEMINI_API_URL, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify(requestBody)
-            });
+    const data = await response.json();
 
-            if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.error?.message || "Lỗi khi kết nối đến Gemini API.");
-            }
+    if (!response.ok) {
+        throw new Error(data.error || "Lỗi khi kết nối đến AI Writing Coach.");
+    }
 
-            const data = await response.json();
-            const jsonText = data.candidates[0].content.parts[0].text;
-            return JSON.parse(jsonText);
-        }
+    if (!data.text) {
+        throw new Error("AI chưa trả về kết quả. Vui lòng thử lại.");
+    }
 
+    return typeof data.text === "string"
+        ? JSON.parse(data.text)
+        : data.text;
+}
         // ================================================================
         // 4. LOGIC XỬ LÝ GIAI ĐOẠN 1: ANALYZE_WRITING
         // ================================================================
