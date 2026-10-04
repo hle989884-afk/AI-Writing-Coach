@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -107,15 +108,40 @@ def generate():
     try:
         client = genai.Client(api_key=api_key)
 
-        response = client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json",
-                temperature=0.2,
-            ),
-        )
+        
+        response = None
+
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-3.8-flash",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        response_mime_type="application/json",
+                        temperature=0.2,
+                    ),
+                )
+                break
+
+            except Exception as exc:
+                error_text = str(exc).upper()
+
+                if (
+                    "503" not in error_text
+                    and "UNAVAILABLE" not in error_text
+                ):
+                    raise
+
+                if attempt == 2:
+                    raise
+
+                wait_seconds = 2 ** (attempt + 1)
+                app.logger.warning(
+                    "Gemini unavailable; retrying in %s seconds.",
+                    wait_seconds,
+                )
+                time.sleep(wait_seconds)
 
         result_text = response.text
 
