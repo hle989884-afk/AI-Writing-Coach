@@ -186,6 +186,16 @@ def generate():
         error_message = str(exc).lower()
 
         if (
+            "503" in error_message
+            or "unavailable" in error_message
+        ):
+            return jsonify({
+                "error": (
+                    "AI đang bận hoặc quá tải. "
+                    "Vui lòng đợi một chút rồi thử lại."
+                )
+            }), 503
+        if (
             "unauthorized" in error_name
             or "api key not valid" in error_message
             or "invalid api key" in error_message
