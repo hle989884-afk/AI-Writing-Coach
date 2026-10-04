@@ -550,7 +550,8 @@ Trả về JSON nghiêm ngặt có cấu trúc như sau (không dùng markdown b
         // ================================================================
         // 3. HÀM GỌI API GEMINI DÙNG FETCH()
         // ================================================================
-        async function callGeminiAPI(systemInstruction, userPrompt) {
+        
+async function callGeminiAPI(systemInstruction, userPrompt) {
     const response = await fetch("/api/generate", {
         method: "POST",
         headers: {
@@ -562,19 +563,46 @@ Trả về JSON nghiêm ngặt có cấu trúc như sau (không dùng markdown b
         })
     });
 
-    const data = await response.json();
+    // Đọc phản hồi dạng text trước để không bị lỗi JSON.parse ngay
+    const rawText = await response.text();
+    const contentType = response.headers.get("content-type") || "";
+
+    if (!contentType.includes("application/json")) {
+        console.error("Server trả về nội dung không phải JSON:", {
+            status: response.status,
+            contentType,
+            body: rawText.slice(0, 500)
+        });
+
+        throw new Error(
+            `Server trả về dữ liệu không phải JSON (HTTP ${response.status}). ` +
+            "Mở Console để xem chi tiết."
+        );
+    }
+
+    let data;
+
+    try {
+        data = JSON.parse(rawText);
+    } catch (error) {
+        console.error("JSON không hợp lệ:", rawText.slice(0, 500));
+        throw new Error("Server trả về JSON không hợp lệ.");
+    }
 
     if (!response.ok) {
-        throw new Error(data.error || "Lỗi khi kết nối đến AI Writing Coach.");
+        throw new Error(data.error || `Lỗi máy chủ HTTP ${response.status}.`);
     }
 
-    if (!data.text) {
-        throw new Error("AI chưa trả về kết quả. Vui lòng thử lại.");
+    if (typeof data.text !== "string" || !data.text.trim()) {
+        throw new Error(data.error || "AI không trả về kết quả.");
     }
 
-    return typeof data.text === "string"
-        ? JSON.parse(data.text)
-        : data.text;
+    try {
+        return JSON.parse(data.text);
+    } catch (error) {
+        console.error("Gemini trả về JSON không hợp lệ:", data.text.slice(0, 1000));
+        throw new Error("Phản hồi của AI không đúng định dạng JSON. Hãy thử lại.");
+    }
 }
         // ================================================================
         // 4. LOGIC XỬ LÝ GIAI ĐOẠN 1: ANALYZE_WRITING
