@@ -1,196 +1,108 @@
-import hashlib
 import json
 import logging
 import os
-import threading
 import time
-from collections import OrderedDict
 from pathlib import Path
+from collections import OrderedDict
+import hashlib
+import threading
 
 from flask import Flask, jsonify, request, send_from_directory
 from google import genai
 from google.genai import types
 
 
-# ==================================================
-# CONFIGURATION
-# ==================================================
+# ==============================
+# CONFIG
+# ==============================
 
 BASE_DIR = Path(__file__).resolve().parent
 
 app = Flask(__name__)
-
-# Maximum HTTP request body
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
-)
-
+logging.basicConfig(level=logging.INFO)
 app.logger.setLevel(logging.INFO)
 
-
-# --------------------------------------------------
-# Gemini configuration
-# --------------------------------------------------
-
-GEMINI_MODEL = os.environ.get(
+MODEL_NAME = os.environ.get(
     "GEMINI_MODEL",
     "gemini-3.8-flash"
-).strip()
-
-# Maximum characters accepted from frontend.
-# Characters != tokens, but this prevents abnormally large requests.
-MAX_PROMPT_LENGTH = 10000
-MAX_INSTRUCTION_LENGTH = 6000
-
-# Output token limit.
-# For a middle-school writing coach, 800-1200 is usually enough.
-MAX_OUTPUT_TOKENS = int(
-    os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "1000")
 )
 
-TEMPERATURE = 0.2
-
-
-# --------------------------------------------------
-# Retry configuration
-# --------------------------------------------------
+MAX_PROMPT_LENGTH = 10000
+MAX_INSTRUCTION_LENGTH = 6000
+MAX_OUTPUT_TOKENS = 1000
 
 MAX_RETRIES = 2
 
-RETRY_DELAYS = (
-    1.5,
-    3.0,
-)
+
+# ==============================
+# GEMINI CLIENT
+# ==============================
+
+API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+
+client = None
+
+if API_KEY:
+    try:
+        client = genai.Client(api_key=API_KEY)
+        app.logger.info("Gemini client initialized.")
+    except Exception:
+        app.logger.exception("Could not initialize Gemini client.")
 
 
-# ==================================================
-# RESPONSE CACHE
-# ==================================================
-
-# Cache is extremely useful for an education app.
-#
-# Example:
-#
-# Student sends:
-# "I like play football."
-#
-# Then presses Analyze again.
-#
-# The second request can be served from cache
-# without calling Gemini again.
+# ==============================
+# CACHE
+# ==============================
 
 CACHE_MAX_ITEMS = 100
+CACHE_TTL = 600
 
-CACHE_TTL_SECONDS = 10 * 60  # 10 minutes
-
-_cache = OrderedDict()
-
-_cache_lock = threading.Lock()
+cache = OrderedDict()
+cache_lock = threading.Lock()
 
 
-def _make_cache_key(prompt: str, system_instruction: str) -> str:
-    """
-    Create a stable SHA-256 key.
-
-    We don't store the actual essay as the dictionary key,
-    which keeps memory usage more predictable.
-    """
-
-    raw = (
-        system_instruction.strip()
-        + "\n---PROMPT---\n"
-        + prompt.strip()
-    )
+def make_cache_key(prompt, instruction):
+    text = instruction.strip() + "\n---\n" + prompt.strip()
 
     return hashlib.sha256(
-        raw.encode("utf-8")
+        text.encode("utf-8")
     ).hexdigest()
 
 
-def _get_cached_result(cache_key: str):
-    """
-    Return cached result if it exists and hasn't expired.
-    """
-
+def get_cache(key):
     now = time.time()
 
-    with _cache_lock:
-
-        item = _cache.get(cache_key)
+    with cache_lock:
+        item = cache.get(key)
 
         if item is None:
             return None
 
-        created_at, result = item
+        created_time, value = item
 
-        # Expired
-        if now - created_at > CACHE_TTL_SECONDS:
-            _cache.pop(cache_key, None)
+        if now - created_time > CACHE_TTL:
+            cache.pop(key, None)
             return None
 
-        # Move recently used item to the end
-        _cache.move_to_end(cache_key)
+        cache.move_to_end(key)
 
-        return result
-
-
-def _set_cached_result(cache_key: str, result):
-    """
-    Store result in a small LRU-style cache.
-    """
-
-    with _cache_lock:
-
-        _cache[cache_key] = (
-            time.time(),
-            result
-        )
-
-        _cache.move_to_end(cache_key)
-
-        while len(_cache) > CACHE_MAX_ITEMS:
-            _cache.popitem(last=False)
+        return value
 
 
-# ==================================================
-# GEMINI CLIENT
-# ==================================================
+def set_cache(key, value):
+    with cache_lock:
+        cache[key] = (time.time(), value)
+        cache.move_to_end(key)
 
-# Reuse the client instead of creating it for every request.
-#
-# This does NOT magically increase Gemini quota,
-# but it reduces unnecessary initialization overhead.
-
-GEMINI_API_KEY = os.environ.get(
-    "GEMINI_API_KEY",
-    ""
-).strip()
-
-client = None
-
-if GEMINI_API_KEY:
-
-    try:
-        client = genai.Client(
-            api_key=GEMINI_API_KEY
-        )
-
-        app.logger.info(
-            "Gemini client initialized successfully."
-        )
-
-    except Exception:
-        app.logger.exception(
-            "Failed to initialize Gemini client."
-        )
+        while len(cache) > CACHE_MAX_ITEMS:
+            cache.popitem(last=False)
 
 
-# ==================================================
-# HOME PAGE
-# ==================================================
+# ==============================
+# HOME
+# ==============================
 
 @app.route("/", methods=["GET"])
 def home():
@@ -198,9 +110,8 @@ def home():
     index_file = BASE_DIR / "index.html"
 
     if not index_file.is_file():
-
         return jsonify({
-            "error": "Không tìm thấy index.html trên máy chủ."
+            "error": "Không tìm thấy index.html."
         }), 500
 
     return send_from_directory(
@@ -209,9 +120,9 @@ def home():
     )
 
 
-# ==================================================
+# ==============================
 # HEALTH CHECK
-# ==================================================
+# ==============================
 
 @app.route("/api/health", methods=["GET"])
 def health():
@@ -219,277 +130,163 @@ def health():
     return jsonify({
         "status": "ok",
         "service": "AI Writing Coach",
-        "model": GEMINI_MODEL
+        "model": MODEL_NAME
     }), 200
 
 
-# ==================================================
-# GEMINI GENERATION
-# ==================================================
+# ==============================
+# GENERATE
+# ==============================
 
 @app.route("/api/generate", methods=["POST"])
 def generate():
 
-    # --------------------------------------------------
-    # 1. Check Gemini client
-    # --------------------------------------------------
-
+    # Check API key
     if client is None:
-
         return jsonify({
-            "error": (
-                "Máy chủ chưa được cấu hình Gemini API key "
-                "hoặc Gemini client chưa khởi tạo được."
-            )
+            "error": "Gemini API key chưa được cấu hình."
         }), 500
 
-
-    # --------------------------------------------------
-    # 2. Check request type
-    # --------------------------------------------------
-
+    # Check JSON
     if not request.is_json:
-
         return jsonify({
-            "error": "Yêu cầu phải gửi dữ liệu JSON."
+            "error": "Yêu cầu phải là JSON."
         }), 415
-
-
-    # --------------------------------------------------
-    # 3. Parse JSON
-    # --------------------------------------------------
 
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
-
         return jsonify({
-            "error": "Dữ liệu gửi lên không hợp lệ."
+            "error": "Dữ liệu không hợp lệ."
         }), 400
 
-
-    prompt = data.get(
-        "prompt",
-        ""
-    )
-
+    prompt = data.get("prompt", "")
     system_instruction = data.get(
         "system_instruction",
         ""
     )
 
-
-    # --------------------------------------------------
-    # 4. Validate prompt
-    # --------------------------------------------------
-
+    # Validate prompt
     if not isinstance(prompt, str):
-
         return jsonify({
-            "error": "Nội dung bài viết không hợp lệ."
+            "error": "Prompt không hợp lệ."
         }), 400
-
 
     prompt = prompt.strip()
 
     if not prompt:
-
         return jsonify({
-            "error": "Vui lòng nhập nội dung bài viết."
+            "error": "Vui lòng nhập bài viết."
         }), 400
-
 
     if len(prompt) > MAX_PROMPT_LENGTH:
-
         return jsonify({
-            "error": (
-                f"Nội dung bài viết quá dài. "
-                f"Tối đa {MAX_PROMPT_LENGTH} ký tự."
-            )
+            "error": "Bài viết quá dài."
         }), 400
 
-
-    # --------------------------------------------------
-    # 5. Validate system instruction
-    # --------------------------------------------------
-
+    # Validate system instruction
     if not isinstance(system_instruction, str):
-
         return jsonify({
             "error": "System instruction không hợp lệ."
         }), 400
 
-
     system_instruction = system_instruction.strip()
 
-
     if len(system_instruction) > MAX_INSTRUCTION_LENGTH:
-
         return jsonify({
-            "error": (
-                f"System instruction quá dài. "
-                f"Tối đa {MAX_INSTRUCTION_LENGTH} ký tự."
-            )
+            "error": "System instruction quá dài."
         }), 400
 
+    # ==============================
+    # CACHE
+    # ==============================
 
-    # ==================================================
-    # CACHE CHECK
-    # ==================================================
-
-    cache_key = _make_cache_key(
+    cache_key = make_cache_key(
         prompt,
         system_instruction
     )
 
-    cached_result = _get_cached_result(
-        cache_key
-    )
+    cached = get_cache(cache_key)
 
-    if cached_result is not None:
+    if cached is not None:
 
         app.logger.info(
-            "Cache hit - Gemini request skipped."
+            "Cache hit. Gemini request skipped."
         )
 
         return jsonify({
-            "text": cached_result
+            "text": cached
         }), 200
 
+    # ==============================
+    # GEMINI
+    # ==============================
 
-    app.logger.info(
-        "Cache miss - sending request to Gemini."
-    )
-
-
-    # ==================================================
-    # GEMINI REQUEST
-    # ==================================================
+    response = None
 
     try:
-
-        response = None
 
         for attempt in range(MAX_RETRIES + 1):
 
             try:
 
                 response = client.models.generate_content(
-
-                    model=GEMINI_MODEL,
-
+                    model=MODEL_NAME,
                     contents=prompt,
-
                     config=types.GenerateContentConfig(
-
                         system_instruction=system_instruction,
-
                         response_mime_type="application/json",
-
-                        temperature=TEMPERATURE,
-
-                        max_output_tokens=MAX_OUTPUT_TOKENS,
-                    ),
+                        temperature=0.2,
+                        max_output_tokens=MAX_OUTPUT_TOKENS
+                    )
                 )
 
                 break
-
 
             except Exception as exc:
 
                 error_text = str(exc).upper()
 
-                is_service_unavailable = (
+                is_unavailable = (
                     "503" in error_text
                     or "UNAVAILABLE" in error_text
                 )
 
-
-                # --------------------------------------------------
-                # IMPORTANT:
-                # Do NOT retry quota errors.
-                #
-                # Retrying 429 usually wastes more time and
-                # does not solve the quota problem.
-                # --------------------------------------------------
-
-                if not is_service_unavailable:
-
+                if not is_unavailable:
                     raise
-
 
                 if attempt >= MAX_RETRIES:
-
                     raise
 
-
-                wait_seconds = RETRY_DELAYS[
-                    min(
-                        attempt,
-                        len(RETRY_DELAYS) - 1
-                    )
-                ]
+                wait_time = 2 ** attempt
 
                 app.logger.warning(
-                    "Gemini temporarily unavailable. "
-                    "Retry %s/%s after %.1fs.",
-                    attempt + 1,
-                    MAX_RETRIES,
-                    wait_seconds
+                    "Gemini unavailable. Retry in %s seconds.",
+                    wait_time
                 )
 
-                time.sleep(
-                    wait_seconds
-                )
-
-
-        # --------------------------------------------------
-        # Safety check
-        # --------------------------------------------------
+                time.sleep(wait_time)
 
         if response is None:
-
             return jsonify({
-                "error": (
-                    "AI không trả về phản hồi. "
-                    "Vui lòng thử lại."
-                )
+                "error": "Gemini không trả về phản hồi."
             }), 502
-
-
-        # --------------------------------------------------
-        # Extract text
-        # --------------------------------------------------
 
         result_text = response.text
 
-
         if not result_text:
-
-            app.logger.warning(
-                "Gemini returned empty response."
-            )
-
             return jsonify({
-                "error": (
-                    "AI không trả về kết quả. "
-                    "Vui lòng thử lại."
-                )
+                "error": "AI không trả về kết quả."
             }), 502
-
 
         result_text = result_text.strip()
 
-
-        # ==================================================
+        # ==============================
         # VALIDATE JSON
-        # ==================================================
+        # ==============================
 
         try:
-
-            parsed_result = json.loads(
-                result_text
-            )
+            parsed = json.loads(result_text)
 
         except json.JSONDecodeError:
 
@@ -498,134 +295,89 @@ def generate():
             )
 
             return jsonify({
-                "error": (
-                    "AI trả về dữ liệu không đúng "
-                    "định dạng JSON. Vui lòng thử lại."
-                )
+                "error": "AI trả về JSON không hợp lệ."
             }), 502
 
-
-        # ==================================================
-        # NORMALIZE RESULT
-        # ==================================================
-
-        normalized_result = json.dumps(
-            parsed_result,
+        normalized = json.dumps(
+            parsed,
             ensure_ascii=False,
             separators=(",", ":")
         )
 
-
-        # ==================================================
-        # SAVE TO CACHE
-        # ==================================================
-
-        _set_cached_result(
+        # Save cache
+        set_cache(
             cache_key,
-            normalized_result
+            normalized
         )
 
-
-        # ==================================================
-        # FRONTEND COMPATIBILITY
-        # ==================================================
-
+        # Keep frontend compatibility
         return jsonify({
-            "text": normalized_result
+            "text": normalized
         }), 200
-
-
-    # ==================================================
-    # ERROR HANDLING
-    # ==================================================
 
     except Exception as exc:
 
         app.logger.exception(
-            "Gemini API request failed (%s)",
+            "Gemini request failed: %s",
             type(exc).__name__
         )
 
+        error_text = str(exc).lower()
         error_name = type(exc).__name__.lower()
-        error_message = str(exc).lower()
 
-
-        # --------------------------------------------------
-        # 503
-        # --------------------------------------------------
-
+        # 429 / quota
         if (
-            "503" in error_message
-            or "unavailable" in error_message
+            "429" in error_text
+            or "quota" in error_text
+            or "resource_exhausted" in error_name
         ):
-
             return jsonify({
                 "error": (
-                    "AI đang bận hoặc quá tải. "
-                    "Vui lòng đợi một chút rồi thử lại."
-                )
-            }), 503
-
-
-        # --------------------------------------------------
-        # 429 - QUOTA
-        # --------------------------------------------------
-
-        if (
-            "resource_exhausted" in error_name
-            or "429" in error_message
-            or "quota" in error_message
-        ):
-
-            return jsonify({
-                "error": (
-                    "Gemini API đã đạt giới hạn quota. "
-                    "Vui lòng thử lại sau."
+                    "Gemini API đã đạt giới hạn quota."
                 )
             }), 429
 
-
-        # --------------------------------------------------
-        # Authentication
-        # --------------------------------------------------
-
+        # 503
         if (
-            "unauthorized" in error_name
-            or "api key not valid" in error_message
-            or "invalid api key" in error_message
-            or "permission_denied" in error_message
-            or "permission denied" in error_message
+            "503" in error_text
+            or "unavailable" in error_text
         ):
+            return jsonify({
+                "error": (
+                    "Gemini đang quá tải. "
+                    "Vui lòng thử lại sau."
+                )
+            }), 503
 
+        # API key
+        if (
+            "api key" in error_text
+            or "unauthorized" in error_text
+            or "permission" in error_text
+        ):
             return jsonify({
                 "error": (
                     "Gemini API key không hợp lệ "
-                    "hoặc chưa có quyền sử dụng API."
+                    "hoặc không có quyền."
                 )
             }), 502
 
-
-        # --------------------------------------------------
-        # Generic error
-        # --------------------------------------------------
-
         return jsonify({
             "error": (
-                "Không thể xử lý yêu cầu AI lúc này. "
-                "Vui lòng kiểm tra Render Logs."
+                "Không thể xử lý yêu cầu AI."
             )
         }), 502
 
 
-# ==================================================
+# ==============================
 # ERROR HANDLERS
-# ==================================================
+# ==============================
 
 @app.errorhandler(404)
 def not_found(error):
 
     return jsonify({
-        "error": "Không tìm thấy đường dẫn yêu cầu."
+        "error": "Không tìm thấy đường dẫn."
     }), 404
 
 
@@ -638,16 +390,16 @@ def request_too_large(error):
 
 
 @app.errorhandler(500)
-def internal_server_error(error):
+def internal_error(error):
 
     return jsonify({
-        "error": "Máy chủ gặp lỗi nội bộ."
+        "error": "Server gặp lỗi nội bộ."
     }), 500
 
 
-# ==================================================
-# START SERVER
-# ==================================================
+# ==============================
+# START
+# ==============================
 
 if __name__ == "__main__":
 
@@ -662,4 +414,4 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port,
         debug=False
-    )ss
+    )
