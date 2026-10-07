@@ -39,7 +39,7 @@ MAX_OUTPUT_TOKENS = int(
 )
 
 # Number of extra retries after the first attempt.
-MAX_RETRIES_PER_MODEL = int(
+MAX_RETRIES_PER_MODEL = 0
     os.environ.get("GEMINI_RETRIES", "2")
 )
 
