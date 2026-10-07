@@ -14,7 +14,9 @@ from google.genai import types
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("app")
 API_KEY = (
     os.environ.get("GEMINI_API_KEY")
     or os.environ.get("GOOGLE_API_KEY")
