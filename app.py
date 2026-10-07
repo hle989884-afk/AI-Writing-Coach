@@ -26,7 +26,7 @@ app.logger.setLevel(logging.INFO)
 
 MODEL_NAME = os.environ.get(
     "GEMINI_MODEL",
-    "gemini-3.8-flash"
+    "gemini-2.5-flash"
 )
 
 MAX_PROMPT_LENGTH = 10000
