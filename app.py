@@ -16,20 +16,15 @@ from google.genai import types
 BASE_DIR = Path(__file__).resolve().parent
 
 API_KEY = (
-    os.environ.get("GEMINI_API_KEY")
+    os.environ.get("G")
     or os.environ.get("GOOGLE_API_KEY")
 )
 
 # Gemini 3.8 Flash is the primary model requested by the API.
-PRIMARY_MODEL = os.environ.get(
-    "GEMINI_MODEL",
-    "gemini-3.8-flash",
-)
+PRIMARY_MODEL = "gemini-2.5-flash"
 
-# Do NOT use gemini-2.5-flash as fallback because the current
-# project/user may not have access to that model.
 FALLBACK_MODELS = [
-    "gemini-3.5-flash-lite",
+    "gemini-2.5-flash-lite"
 ]
 
 MAX_OUTPUT_TOKENS = int(
