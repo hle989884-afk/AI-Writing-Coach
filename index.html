@@ -594,16 +594,18 @@ async function callGeminiAPI(systemInstruction, userPrompt) {
     // ==========================================
 
     if (!contentType.toLowerCase().includes("application/json")) {
-        console.error(
-            "Server không trả JSON:",
-            rawText.slice(0, 1000)
-        );
+    console.error(
+        "Server không trả JSON:",
+        rawText.slice(0, 1000)
+    );
 
-        throw new Error(
-            `Server trả về dữ liệu không phải JSON (HTTP ${response.status}). ` +
-            `Nội dung: ${rawText.slice(0, 200)}`
-        );
-    }
+    throw new Error(
+        "Server trả về dữ liệu không phải JSON (HTTP " +
+        response.status +
+        "). Nội dung: " +
+        rawText.slice(0, 200)
+    );
+}
 
     // ==========================================
     // PARSE JSON SERVER
