@@ -32,7 +32,6 @@ PRIMARY_MODEL = "gemini-3.6-flash"
 FALLBACK_MODELS = [
     "gemini-3.7-flash",
     "gemini-3.8-flash",
-    "gemini-3.5-flash-lite",
 ]
 
 MAX_OUTPUT_TOKENS = int(
@@ -318,76 +317,37 @@ def normalize_model_json(text):
 # ROUTES
 # ============================================================
 
-@app.route("/", methods=["GET"])
-def index():
-    index_file = BASE_DIR / "index.html"
-
-    if not index_file.exists():
-        return jsonify(
-            {
-                "error": "Không tìm thấy index.html.",
-                "base_dir": str(BASE_DIR),
-            }
-        ), 404
-
-    return send_from_directory(BASE_DIR, "index.html")
-
-
-@app.route("/api/health", methods=["GET"])
-def health():
-    return jsonify(
-        {
-            "status": "ok",
-            "service": "AI Writing Coach",
-            "model": PRIMARY_MODEL,
-            "fallback_models": FALLBACK_MODELS,
-            "api_key_configured": bool(API_KEY),
-        }
-    )
-
-
 @app.route("/api/generate", methods=["POST"])
 def generate():
-    if not request.is_json:
-        return jsonify(
-            {
-                "error": "Request phải có Content-Type: application/json."
-            }
-        ), 400
-
-    body = request.get_json(silent=True)
-
-    if not isinstance(body, dict):
-        return jsonify(
-            {
-                "error": "JSON request không hợp lệ."
-            }
-        ), 400
-
-    system_instruction = body.get(
-        "system_instruction",
-        "",
-    )
-
-    prompt = body.get(
-        "prompt",
-        "",
-    )
-
-    if not isinstance(system_instruction, str):
-        system_instruction = str(system_instruction)
-
-    if not isinstance(prompt, str):
-        prompt = str(prompt)
-
-    if not prompt.strip():
-        return jsonify(
-            {
-                "error": "Prompt không được để trống."
-            }
-        ), 400
-
     try:
+        if not request.is_json:
+            return jsonify({
+                "error": "Request phải có Content-Type: application/json."
+            }), 400
+
+        body = request.get_json(silent=True)
+
+        if not isinstance(body, dict):
+            return jsonify({
+                "error": "JSON request không hợp lệ."
+            }), 400
+
+        system_instruction = body.get("system_instruction", "")
+        prompt = body.get("prompt", "")
+
+        if not isinstance(system_instruction, str):
+            system_instruction = str(system_instruction)
+
+        if not isinstance(prompt, str):
+            prompt = str(prompt)
+
+        if not prompt.strip():
+            return jsonify({
+                "error": "Prompt không được để trống."
+            }), 400
+
+        logger.info("Starting Gemini generation...")
+
         result_text, used_model = generate_with_fallback(
             system_instruction=system_instruction,
             prompt=prompt,
@@ -395,73 +355,46 @@ def generate():
 
         normalized = normalize_model_json(result_text)
 
-        return jsonify(
-            {
-                "text": normalized,
-                "model": used_model,
-            }
-        ), 200
+        return jsonify({
+            "text": normalized,
+            "model": used_model,
+        }), 200
 
     except json.JSONDecodeError:
-        logger.exception(
-            "Gemini returned invalid JSON."
-        )
+        logger.exception("Gemini returned invalid JSON.")
 
-        return jsonify(
-            {
-                "error": "Gemini trả về dữ liệu không phải JSON hợp lệ.",
-            }
-        ), 502
+        return jsonify({
+            "error": "Gemini trả về dữ liệu không phải JSON hợp lệ."
+        }), 502
 
     except Exception as error:
         status = get_error_status(error)
         details = error_message(error)
 
-        logger.exception(
-            "All Gemini attempts failed."
-        )
+        logger.exception("All Gemini attempts failed.")
 
         if status == 401:
-            message = (
-                "Gemini API authentication thất bại. "
-                "Kiểm tra GEMINI_API_KEY trên Render."
-            )
+            message = "Gemini API authentication thất bại."
 
         elif status == 403:
-            message = (
-                "Gemini API key không có quyền sử dụng model này."
-            )
+            message = "Gemini API key không có quyền sử dụng model này."
 
         elif status == 404:
-            message = (
-                "Model Gemini không khả dụng cho API key này."
-            )
+            message = "Model Gemini không khả dụng cho API key này."
 
         elif status == 429:
-            message = (
-                "Gemini API đang giới hạn quota. "
-                "Đã thử retry và model fallback."
-            )
+            message = "Gemini API đang giới hạn quota."
 
         elif status in (500, 502, 503, 504):
-            message = (
-                "Gemini đang tạm thời không khả dụng. "
-                "Đã thử retry và model fallback."
-            )
+            message = "Gemini đang tạm thời không khả dụng."
 
         else:
-            message = (
-                "Không thể xử lý yêu cầu AI."
-            )
+            message = "Không thể xử lý yêu cầu AI."
 
-        return jsonify(
-            {
-                "error": message,
-                "details": details,
-            }
-        ), 502
-
-
+        return jsonify({
+            "error": message,
+            "details": details,
+        }), 502
 # ============================================================
 # START
 # ============================================================
