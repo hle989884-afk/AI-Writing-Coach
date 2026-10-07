@@ -27,13 +27,12 @@ if API_KEY:
 else:
     logger.error("Gemini API key NOT detected.")
 # Gemini 3.8 Flash is the primary model requested by the API.
-PRIMARY_MODEL = "gemini-2.5-flash"
+PRIMARY_MODEL = "gemini-3.1-flash-lite"
 
 FALLBACK_MODELS = [
-    "gemini-3.1-flash-lite",
     "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
 ]
-
 MAX_RETRIES_PER_MODEL = 0
 
 RETRY_BASE_SECONDS = float(
