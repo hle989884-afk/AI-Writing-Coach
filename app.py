@@ -30,7 +30,7 @@ else:
 PRIMARY_MODEL = "gemini-3.5-flash"
 
 FALLBACK_MODELS = [
-    "gemini-2.5-flash-lite"
+    "gemini-3.8-flash-lite"
 ]
 
 MAX_OUTPUT_TOKENS = int(
