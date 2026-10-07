@@ -27,7 +27,7 @@ if API_KEY:
 else:
     logger.error("Gemini API key NOT detected.")
 # Gemini 3.8 Flash is the primary model requested by the API.
-PRIMARY_MODEL = "gemini-2.5-flash"
+PRIMARY_MODEL = "gemini-3.5-flash"
 
 FALLBACK_MODELS = [
     "gemini-2.5-flash-lite"
