@@ -63,15 +63,26 @@ logger = logging.getLogger("AI-Writing-Coach")
 
 client = None
 
-if API_KEY:
+iif API_KEY:
     client = genai.Client(api_key=API_KEY)
     logger.info("Gemini client initialized.")
+
+    try:
+        available_models = []
+
+        for model in client.models.list():
+            supported = getattr(model, "supported_actions", []) or []
+
+            if "generateContent" in supported:
+                name = model.name.replace("models/", "")
+                available_models.append(name)
+
+        logger.info("Available Gemini models: %s", available_models)
+
+    except Exception as e:
+        logger.exception("Cannot list Gemini models: %s", e)
+
 else:
-    logger.error(
-        "GEMINI_API_KEY / GOOGLE_API_KEY is not configured."
-    )
-
-
 # ============================================================
 # MODEL HELPERS
 # ============================================================
