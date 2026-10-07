@@ -27,26 +27,26 @@ if API_KEY:
 else:
     logger.error("Gemini API key NOT detected.")
 # Gemini 3.8 Flash is the primary model requested by the API.
-PRIMARY_MODEL = "gemini-3.6-flash"
+PRIMARY_MODEL = "gemini-2.5-flash"
 
 FALLBACK_MODELS = [
-    "gemini-3.7-flash",
-    "gemini-3.8-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite",
 ]
 
-MAX_OUTPUT_TOKENS = int(
-    os.environ.get("MAX_OUTPUT_TOKENS", "4096")
-)
-
-# Number of extra retries after the first attempt.
 MAX_RETRIES_PER_MODEL = 0
-    os.environ.get("GEMINI_RETRIES", "2")
-)
 
 RETRY_BASE_SECONDS = float(
-    os.environ.get("GEMINI_RETRY_BASE", "1")
+    os.environ.get("GEMINI_RETRY_BASE_SECONDS", "1")
 )
 
+GEMINI_RETRIES = int(
+    os.environ.get("GEMINI_RETRIES", "0")
+)
+
+MAX_OUTPUT_TOKENS = int(
+    os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "1200")
+)
 PORT = int(os.environ.get("PORT", "5000"))
 
 # ============================================================
