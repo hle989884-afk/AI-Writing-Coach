@@ -316,7 +316,28 @@ def normalize_model_json(text):
 # ============================================================
 # ROUTES
 # ============================================================
+@app.route("/", methods=["GET"])
+def index():
+    index_file = BASE_DIR / "index.html"
 
+    if not index_file.exists():
+        return jsonify({
+            "error": "Không tìm thấy index.html.",
+            "base_dir": str(BASE_DIR),
+        }), 404
+
+    return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.route("/api/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "ok",
+        "service": "AI Writing Coach",
+        "model": PRIMARY_MODEL,
+        "fallback_models": FALLBACK_MODELS,
+        "api_key_configured": bool(API_KEY),
+    })
 @app.route("/api/generate", methods=["POST"])
 def generate():
     try:
