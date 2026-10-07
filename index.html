@@ -557,141 +557,136 @@ Trả về JSON nghiêm ngặt có cấu trúc như sau (không dùng markdown b
         // 3. HÀM GỌI API GEMINI DÙNG FETCH()
         // ================================================================
         
+```javascript
 async function callGeminiAPI(systemInstruction, userPrompt) {
-    const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            system_instruction: systemInstruction,
-            prompt: userPrompt
-        })
-    });
+    let response;
 
-    // Đọc phản hồi dạng text trước để không bị lỗi JSON.parse ngay
+    try {
+        response = await fetch("/api/generate", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                system_instruction: systemInstruction,
+                prompt: userPrompt
+            })
+        });
+    } catch (error) {
+        console.error("Không thể kết nối server:", error);
+
+        throw new Error(
+            "Không thể kết nối tới server. Hãy kiểm tra backend/Render rồi thử lại."
+        );
+    }
+
     const rawText = await response.text();
     const contentType = response.headers.get("content-type") || "";
 
-    if (!contentType.includes("application/json")) {
-        console.error("Server trả về nội dung không phải JSON:", {
-            status: response.status,
-            contentType,
-            body: rawText.slice(0, 500)
-        });
+    console.log("API response:", {
+        status: response.status,
+        contentType: contentType,
+        body: rawText.slice(0, 1000)
+    });
+
+    // ==========================================
+    // SERVER KHÔNG TRẢ JSON
+    // ==========================================
+
+    if (!contentType.toLowerCase().includes("application/json")) {
+        console.error(
+            "Server không trả JSON:",
+            rawText.slice(0, 1000)
+        );
 
         throw new Error(
             `Server trả về dữ liệu không phải JSON (HTTP ${response.status}). ` +
-            "Mở Console để xem chi tiết."
+            `Nội dung: ${rawText.slice(0, 200)}`
         );
     }
+
+    // ==========================================
+    // PARSE JSON SERVER
+    // ==========================================
 
     let data;
 
     try {
         data = JSON.parse(rawText);
     } catch (error) {
-        console.error("JSON không hợp lệ:", rawText.slice(0, 500));
-        throw new Error("Server trả về JSON không hợp lệ.");
+        console.error(
+            "Server trả JSON không hợp lệ:",
+            rawText.slice(0, 1000)
+        );
+
+        throw new Error(
+            `Server trả về JSON không hợp lệ (HTTP ${response.status}).`
+        );
     }
+
+    // ==========================================
+    // SERVER ERROR
+    // ==========================================
 
     if (!response.ok) {
-        throw new Error(data.error || `Lỗi máy chủ HTTP ${response.status}.`);
+        console.error("API error:", data);
+
+        if (response.status === 429) {
+            throw new Error(
+                data.error ||
+                "Gemini API đã đạt giới hạn quota. Vui lòng thử lại sau."
+            );
+        }
+
+        if (response.status === 503) {
+            throw new Error(
+                data.error ||
+                "Gemini đang quá tải. Vui lòng thử lại sau."
+            );
+        }
+
+        if (response.status === 502) {
+            throw new Error(
+                data.error ||
+                "Gemini API không phản hồi đúng. Vui lòng thử lại."
+            );
+        }
+
+        throw new Error(
+            data.error ||
+            `Lỗi máy chủ HTTP ${response.status}.`
+        );
     }
 
+    // ==========================================
+    // CHECK AI RESULT
+    // ==========================================
+
     if (typeof data.text !== "string" || !data.text.trim()) {
-        throw new Error(data.error || "AI không trả về kết quả.");
+        throw new Error(
+            data.error ||
+            "AI không trả về kết quả."
+        );
     }
+
+    // ==========================================
+    // PARSE JSON DO GEMINI TRẢ VỀ
+    // ==========================================
 
     try {
         return JSON.parse(data.text);
     } catch (error) {
-        console.error("Gemini trả về JSON không hợp lệ:", data.text.slice(0, 1000));
-        throw new Error("Phản hồi của AI không đúng định dạng JSON. Hãy thử lại.");
+        console.error(
+            "Gemini trả JSON không hợp lệ:",
+            data.text.slice(0, 1000)
+        );
+
+        throw new Error(
+            "Phản hồi của AI không đúng định dạng JSON. Hãy thử lại."
+        );
     }
 }
-        // ================================================================
-        // 4. LOGIC XỬ LÝ GIAI ĐOẠN 1: ANALYZE_WRITING
-        // ================================================================
-        async function analyzeWriting() {
-            const inputEl = document.getElementById("input-writing");
-            originalText = inputEl.value.trim();
-
-            if (!originalText) {
-                alert("Vui lòng nhập bài viết tiếng Anh trước khi bấm phân tích!");
-                return;
-            }
-
-            // Hiển thị UI Loading
-            toggleLoading(true, "Trợ lý AI đang rà soát bài viết của bạn...");
-            document.getElementById("btn-analyze").disabled = true;
-
-            try {
-                const userPrompt = `Bài viết của học sinh:\n"${originalText}"`;
-                const result = await callGeminiAPI(SYSTEM_INSTRUCTION_ANALYZE, userPrompt);
-
-                currentErrors = result.errors_found || [];
-
-                // Cập nhật trạng thái Process Bar
-                updateCycleBar(2);
-
-                // Đổ danh sách lỗi ra cột bên trái
-                renderErrorCards(currentErrors);
-
-                // Copy văn bản gốc sang ô tự sửa để học sinh tiện chỉnh sửa
-                document.getElementById("revision-writing").value = originalText;
-
-                // Animate hiển thị Phase 2
-                document.getElementById("phase2-container").classList.remove("hidden");
-                document.getElementById("phase2-container").scrollIntoView({ behavior: 'smooth' });
-
-            } catch (error) {
-                console.error(error);
-                alert("Đã xảy ra lỗi khi phân tích: " + error.message + "\nVui lòng kiểm tra lại kết nối mạng hoặc API Key!");
-            } finally {
-                toggleLoading(false);
-                document.getElementById("btn-analyze").disabled = false;
-            }
-        }
-
-        function renderErrorCards(errors) {
-            const container = document.getElementById("error-cards-list");
-            container.innerHTML = "";
-
-            if (errors.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align: center; color: var(--success); padding: 1rem;">
-                        <i class="fa-solid fa-circle-check" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
-                        <p><strong>Tuyệt vời!</strong> Không tìm thấy lỗi ngữ pháp hoặc chính tả rõ ràng nào trong bài viết.</p>
-                    </div>
-                `;
-                return;
-            }
-
-            errors.forEach((err, idx) => {
-                const card = document.createElement("div");
-                card.className = `error-card tag-${err.error_type}`;
-
-                card.innerHTML = `
-                    <div>
-                        <span class="error-badge badge-${err.error_type}">${taxonomyMap[err.error_type] || err.error_type}</span>
-                    </div>
-                    <div>
-                        Lỗi ${idx + 1}: Từ bị sai <span class="error-target">${escapeHtml(err.wrong_word)}</span>
-                    </div>
-                    <div class="hint-item">
-                        <strong><i class="fa-solid fa-magnifying-glass"></i> Nhận diện (L1):</strong> ${escapeHtml(err.hints.l1_identification)}
-                    </div>
-                    <div class="hint-item">
-                        <strong><i class="fa-solid fa-book"></i> Lý do sai (L2):</strong> ${escapeHtml(err.hints.l2_explanation)}
-                    </div>
-                    <div class="hint-item" style="color: var(--primary); font-weight: 500;">
-                        <strong><i class="fa-solid fa-compass"></i> Gợi ý tự sửa (L3):</strong> ${escapeHtml(err.hints.l3_guided_hint)}
-                    </div>
-                `;
-                container.appendChild(card);
-            });
-        }
+```
 
         // ================================================================
         // 5. LOGIC XỬ LÝ GIAI ĐOẠN 2: CHECK_REVISION
