@@ -398,7 +398,9 @@ def generate():
 # ============================================================
 # START
 # ============================================================
-
+logger.info("REGISTERED ROUTES:")
+for rule in app.url_map.iter_rules():
+    logger.info("%s %s", rule.methods, rule)
 if __name__ == "__main__":
     logger.info(
         "Starting AI Writing Coach on port %s",
